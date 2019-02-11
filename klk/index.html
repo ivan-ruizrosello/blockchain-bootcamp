@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+	<meta name="author" content="Manuel Sales, asserverse.com">
+	<meta charset='utf-8'>
+	<title>Almacenar y validar datos usando javascript Ethereum y web3</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<script type="text/javascript" src="https://rawgit.com/ethereum/web3.js/develop/dist/web3.min.js"></script>
+</head>
+
+<body>	
+	<div id="addr" style="display:none">
+		<h2>Saldo de una direccion</h2>
+		<table>
+			<tr><td>ethereum addr</td><td id="addrId"></td></tr>
+			<tr><td>saldo</td><td id="addrBal"></td></tr>
+		</table>
+	</div>
+	<div id="validar" style="display:none">
+		<h2>Validar url acortada</h2>
+		<table>
+			<tr><td>_id</td><td id="gotoId"></td></tr>
+			<tr><td>url a ir</td><td id="gotoUrl"></td></tr>
+			<tr><td>hash</td><td id="gotoHash"></td></tr>
+			<tr colspan=2><td>..</td></tr>
+			<tr><td>ethereum addr</td><td id="ethAddr"></td></tr>
+			<tr><td>ethereum hash</td><td id="ethHash"></td></tr>
+			<tr><td>ethereum url</td><td id="ethUrl"></td></tr>
+			<tr colspan=2><td>..</td></tr>
+			<tr><td>resultado</td><td id="cmp"></td></tr>
+		</table>
+	</div>
+	<div id="generar" style="display:none">
+		<h2>Generar url acortada</h2>
+		<input type="url" id="longUrl" placeholder="url a acortar" style="width: 80%">
+		<button id="sbtn" type="button" onclick="shortUrl();">acortar</button>
+		<table id="urlOk" style="display:none;">
+			<tr><td>url acortada</td><td id="shortUrl"></td></tr>
+			<tr><td>_id</td><td id="genId"></td></tr>
+			<tr><td>_hash</td><td id="genHash"></td></tr>
+			<tr><td>_url</td><td id="genUrl"></td></tr>
+		</table>
+		<div id="urlKo" style="display:none">
+			<p id="error" style="color:red;"></p>
+		</div>
+	</div>
+	<p>Nota: como todas las llamadas son desde el navegador debes habilitar CORS con un plugin o tocando los settings para que acortar y validar funcionen bien</p>
+</body>
+
+</html>
+
+<style type="text/css">
+	table { margin-top: 1em; }
+	tbody tr td:first-child { width: 10em; font-weight: bold; }
+</style>
+
+<script type="text/javascript">
+let endpoint = 'https://www.jsonstore.io/6c41cacacf2cf7a19749a71e6fa46c060fc54b91620685062f8ad28c8f87a13d';
+let infuraKey = 'd317370a10a2437fbe5a8237a5be58af';
+let web3;
+window.onload = function() {
+	// conectar web3 al provider
+	ethConnect();
+
+	// si la url esta limpia mostrar el formulario para generar una url acortada
+	if (!window.location.hash) {
+		document.getElementById('generar').style.display = '';
+		return;
+	}
+
+	// intentar ver si el id corresponde a una url acortada (si la longitud es 16) o una direccion (resto de casos)
+	let id = window.location.hash.substr(1);
+	if (id.length!=16) addrBalance(id);
+	else validarUrl(id);
+}
+
+// conectar web3 al provider
+function ethConnect() {
+	// Paso 1 a completar
+    if (typeof web3 !== 'undefined') {
+		console.log('Web3 Detected! ' + web3.currentProvider.constructor.name)
+		window.web3 = new Web3(web3.currentProvider);
+	} else {
+		console.log('No Web3 Detected... using HTTP Provider')
+		window.web3 = new Web3(new Web3.providers.HttpProvider('https://ropsten.infura.io/'+infuraKey));
+        // console.log(window.web3.currentProvider)
+	}
+}
+
+// obtiene el saldo de una direccion
+function addrBalance(id) {
+	document.getElementById('addr').style.display = '';
+	let addr = id.substr(0,2)=='0x' ? id : '0x'+id;
+	if (!/^0x[0-9A-Fa-f]{40}$/i.test(id)) {
+		document.getElementById("addrId").innerHTML = 'direccion invalida';
+		return;
+	}
+	// Paso 2 a completar
+
+    const balance = window.web3.eth.getBalance(id).c[0];
+
+    document.getElementById("addrBal").innerHTML = `${parseInt(balance/10000)}.${parseInt(balance)%10000} ETH`;
+    document.getElementById("addrId").innerHTML = id;
+
+    console.log(window.web3.eth.getBalance(id))
+}
+
+// valida si el id corresponde a una url acortada y obtiene la url original; si todo va bien consulta en ethereum los datos del id
+function validarUrl(id) {
+	document.getElementById('validar').style.display = '';
+	document.getElementById('gotoId').innerHTML = '0x'+id;
+	getAsync(endpoint+"/"+id, function() {
+		if (this.responseText) {
+			let longUrl = JSON.parse(this.responseText).result;
+			if (longUrl!=null && isURL(longUrl)) {
+				document.getElementById('gotoUrl').innerHTML = longUrl;
+				calcWeb3Hash(longUrl, 'gotoHash', true);
+				ethDocGet(id);
+			} else {
+				document.getElementById('gotoUrl').innerHTML = 'el id no corresponde a ninguna url acortada';
+			}
+		}
+	});
+}
+
+// acorta una url, primero genera un id aleatorio y luego verifica que no exista (si existe vuelve a llamar a esta funcion hasta que no haya colision); una vez generado registra el id
+function shortUrl() {
+	let longUrl = document.getElementById('longUrl').value;
+	if (isURL(longUrl)) {
+	    id = genRandom(16, 'hex');
+		getAsync(endpoint+'/'+id, function(){
+			if (this.responseText) {
+				let res = JSON.parse(this.responseText);
+				if (res.result!=null) return shortUrl(); // ya existe, generar otro a ver si hay suerte..
+				registrarId(id, longUrl);		
+			}
+		});
+	} else {
+		document.getElementById('urlOk').style.display = 'none';
+		document.getElementById('urlKo').style.display = '';
+		document.getElementById("error").innerHTML = 'url invalida';
+	}
+};
+
+// valida que el formato corresponde a una url
+function isURL(a){
+	var f=/^(?:(?:https?|ftp):\/\/)?(?:(?!(?:10|127)(?:\.\d{1,3}){3})(?!(?:169\.254|192\.168)(?:\.\d{1,3}){2})(?!172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2})(?:[1-9]\d?|1\d\d|2[01]\d|22[0-3])(?:\.(?:1?\d{1,2}|2[0-4]\d|25[0-5])){2}(?:\.(?:[1-9]\d?|1\d\d|2[0-4]\d|25[0-4]))|(?:(?:[a-z\u00a1-\uffff0-9]-*)*[a-z\u00a1-\uffff0-9]+)(?:\.(?:[a-z\u00a1-\uffff0-9]-*)*[a-z\u00a1-\uffff0-9]+)*(?:\.(?:[a-z\u00a1-\uffff]{2,})))(?::\d{2,5})?(?:\/\S*)?$/;
+	return f.test(a);
+}
+
+// genera un string aleatorio de longitud len; si base='hex' el string es hexadecimal, sino es base62
+function genRandom(len, base) {
+    let text = "", possible = base=='hex' ? '0123456789abcdef' : 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    for (let i = 0; i<len; i++) text += possible.charAt(Math.floor(Math.random() * possible.length));
+    return text;
+}
+
+// registra el id en jsonstore; si se registra con exito calcula el hash de la url
+function registrarId(id, longUrl) {
+	postAsync(endpoint+"/"+id, longUrl, function(){
+		document.getElementById('urlOk').style.display = '';
+		document.getElementById('urlKo').style.display = 'none';
+		document.getElementById('shortUrl').innerHTML = window.location.protocol+'//'+window.location.pathname+'#'+id;
+		document.getElementById('genId').innerHTML = '0x'+id;
+		document.getElementById('genUrl').innerHTML = longUrl;
+		calcWeb3Hash(longUrl, 'genHash')
+	});
+}
+
+// hace un GET de una url de manera asincrona y cuando se recibe la pagina llama al handler
+function getAsync(url, handler) {
+	let req = new XMLHttpRequest();
+	req.addEventListener("load", handler);
+	req.open('GET', url);
+	req.send();
+}
+
+// hace un POST a una url de un objeto data de manera asincrona y cuando se recibe la pagina llama al handler
+function postAsync(url, data, handler) {
+	let req = new XMLHttpRequest();
+	req.addEventListener("load", handler);
+	req.open('POST', url);
+	req.setRequestHeader('Content-Type', 'application/json; charset=UTF-8');
+	req.send(JSON.stringify(data));
+}
+
+// calcula el hash de una pagina web utilizando la funcion hash sha3 de web3
+function calcWeb3Hash(url, id, cmp) {
+	// Paso 3 a completar
+    
+    getAsync(url, (res) => document.getElementById('genHash').innerHTML = window.web3.sha3(res.target.response))
+    if(cmp) {
+        compareHash(); 
+    }
+}
+
+
+let abi = [{"constant": true,"inputs": [{"name": "id","type": "bytes8"}],"name": "obtenerDocumento","outputs": [{"name": "","type": "address"},{"name": "","type": "bytes32"},{"name": "","type": "string"}],"payable": false,"stateMutability": "view","type": "function"},{"constant": false,"inputs": [{"name": "_id","type": "bytes8"},{"name": "_hash","type": "bytes32"},{"name": "_url","type": "string"}],"name": "notarizar","outputs": [],"payable": false,"stateMutability": "nonpayable","type": "function"},{"anonymous": false,"inputs": [{"indexed": false,"name": "id","type": "bytes8"},{"indexed": false,"name": "propietario","type": "address"},{"indexed": false,"name": "hash","type": "bytes32"},{"indexed": false,"name": "url","type": "string"}],"name": "notarizado","type": "event"}];
+let ctrAddr = '0xc3f2d49341e796ca2474a684d72f430c9b9ebaa8'; //'0x81b7E08F65Bdf5648606c89998A9CC8164397647';
+let ctr;
+
+// obtiene del contrato los datos asociados al id
+function ethDocGet(id) {
+	// Paso 4 a completar
+}
+
+// compara los hash de ethereum y del contenido de la url
+function compareHash() {
+	let gotoUrl = document.getElementById('gotoUrl').innerHTML;
+	let ethUrl = document.getElementById('ethUrl').innerHTML;
+	let gotoHash = document.getElementById('gotoHash').innerHTML;
+	let ehtHash = document.getElementById('ethHash').innerHTML;
+	if (!gotoHash || !ethHash) return; // aun falta una parte
+	let cmpRes = gotoUrl==ethUrl ? 'coinciden las url; ' : 'las url son diferentes';
+	cmpRes += gotoHash==ethHash ? 'coinciden los hash ' : 'los hash son diferentes; ';
+	document.getElementById('cmp').innerHTML = cmpRes+' <a href="'+gotoUrl+'">ir al enlace</a>';
+}
+</script>
